@@ -371,16 +371,37 @@ public class SpringApplication {
 	public ConfigurableApplicationContext run(final String... args) {
 		final StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
+
+		//context对象 用以返回
 		ConfigurableApplicationContext context = null;
+
+		//异常集合 用以启动失败时候打印
 		Collection<SpringBootExceptionReporter> exceptionReporters = new ArrayList<>();
 		configureHeadlessProperty();
+
+		//加载Spring启动过程监听器，其实就是从spring.factories里找{SpringApplicationRunListener}的实现类
+		//所以可以自定义启动监听器，实现{SpringApplicationRunListener} 并在spring.factories里面指定
+		//另外自定义的监听器需要明确构造函数 constructor(SpringApplication sa,String[] args)
+		//因为getRunListeners(args)里面写死了，去找的构造函数式是包含参数: [SpringApplication.class,String[].class]
+		//spring默认只有一个启动监听器{EventPublishingRunListener}，
+		// 他在初始化的时候会将 new SpringApplication()时候初始化的所有listener获取过来，然后在不同的启动阶段发送不同的事件
+		// listener会收到这些事件(会调用到listener的onApplicationEvent方法) 进行各自的业务处理
 		final SpringApplicationRunListeners listeners = getRunListeners(args);
+
+		//启动监听器 启动的时候会发送 {ApplicationStartingEvent} 事件
 		listeners.starting();
 		try {
 			final ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);
+
+			//准备各种环境变量，准备好后 会发布 {ApplicationEnvironmentPreparedEvent} 事件
 			final ConfigurableEnvironment environment = prepareEnvironment(listeners, applicationArguments);
+
 			configureIgnoreBeanInfo(environment);
+
+			//打印banner
 			final Banner printedBanner = printBanner(environment);
+
+			//根据环境创建不同的Application上下文实例
 			context = createApplicationContext();
 			exceptionReporters = getSpringFactoriesInstances(SpringBootExceptionReporter.class,
 					new Class[] {ConfigurableApplicationContext.class}, context);
@@ -409,11 +430,45 @@ public class SpringApplication {
 
 	private ConfigurableEnvironment prepareEnvironment(final SpringApplicationRunListeners listeners,
 			final ApplicationArguments applicationArguments) {
-		// Create and configure the environment
+		//初始化环境变量，判断有没有特征类来区别是否是 web环境/reactive环境
+		//ConfigurableEnvironment 里面包含了所有的环境变量以及指定的运行环境(profile)，根据来源不同，包含在不同的PropertySource里
+		//所有的PropertySource都包含在 MutablePropertySources 里
+		//例如 系统环境变量 的 SystemEnvironmentPropertySource
+		//PropertySource 包含一个名称 和 一个map，名称用来表达这个ps持有的是什么样的变量，map是所有变量数据
+		//可以自定义变量来源 实现PropertySource类
 		ConfigurableEnvironment environment = getOrCreateEnvironment();
+
+		//初始化环境变量
+		// 1、将commandLine args解析并加入到环境变量中(--开头的是当做kv处理存储在map里，不带--的是当做整体处理存储在list里)
+		// 2、从所有的PropertySource里获取spring.profiles.active变量值，然后给赋值给activeProfiles
 		configureEnvironment(environment, applicationArguments.getSourceArgs());
+
+		//将 {ConfigurationPropertySource} 作为propertySource添加到环境变量的propertySources(就是MutablePropertySources)里
 		ConfigurationPropertySources.attach(environment);
+
+		//发布ApplicationEnvironmentPreparedEvent环境变量准备完成事件
+		//listener会监听到这个事件
+		//spring自己的listener ConfigFileApplicationListener
+		//  会在这个事件的回调方法里调用EnvironmentPostProcessor的postProcessEnvironment方法
+		//  EnvironmentPostProcessor 是从spring.factories配置加载出来的
+		//  同时，ConfigFileApplicationListener自己也是EnvironmentPostProcessor的实现类，也会把自己加入到postProcessors里面
+		//  在挨个调用postProcessEnvironment的时候，也会调用到自己
+		//ConfigFileProcessor的postProcessEnvironment主要是调用PropertySourceLoader的load方法加载各种变量
+		//PropertySourceLoader 是从spring.factories配置加载出来的
+		//===========
+		//由上可知，配置中心 读取数据插入到spring环境变量中一共有三个可以触发的节点
+		//1.实现ApplicationListener监听类，监听 ApplicationEnvironmentPreparedEvent事件，在这时读取配置中心的配置，
+		//		但是这里有个坏处是还没有读取 application.property 配置文件，不能动态配置的地址等，此时环境变量中只有系统变量和命令行变量
+		//2.实现EnvironmentPostProcessor子类，接收postProcessors方法回调，在这时去读配置中心的配置，
+		//		坏处同1,因为在循环执行postProcessors的时候，最后一个才执行ConfigFile...，所以在这时候也还是没有配置文件配置的变量
+		//3.实现PropertySourceLoader子类，接收load方法回调，在load方法里去读配置中心的配置，
+		//		这时候配置文件的配置已经有了，就可以到配置文件中拿到自己配置的地址等信息
 		listeners.environmentPrepared(environment);
+
+		System.out.println(environment.getProperty("aaa"));
+		System.out.println(environment.getProperty("bbb"));
+		System.out.println(environment.getProperty("ccc"));
+
 		bindToSpringApplication(environment);
 		if (!this.isCustomEnvironment) {
 			environment = new EnvironmentConverter(getClassLoader())

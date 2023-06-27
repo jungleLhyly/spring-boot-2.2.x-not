@@ -1,0 +1,8 @@
+org.springframework.boot.SpringApplicationRunListener=\
+  com.jungle.spring.runlistener.TestSpringApplicationRunListener
+org.springframework.context.ApplicationListener=\
+  com.jungle.spring.preparedenvironment.JungleConfigCenterApplicationListener
+org.springframework.boot.env.EnvironmentPostProcessor=\
+  com.jungle.spring.preparedenvironment.JungleConfigCenterPostEnvironmentProcessor
+org.springframework.boot.env.PropertySourceLoader=\
+  com.jungle.spring.preparedenvironment.JungleConfigCenterPropertyLoader
